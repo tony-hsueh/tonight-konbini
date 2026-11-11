@@ -148,6 +148,11 @@
       font: 600 11px/1.5 ui-monospace, monospace;
     }
     .touch-controls { display: none; }
+    .touch-controls, .touch-controls button {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
     @media (max-width: 820px) {
       .stage[data-scene="counter"] { grid-template-columns: minmax(0, 1fr); height: auto; }
       .stage[data-scene="counter"] .world { height: clamp(205px, 34dvh, 340px); }
@@ -203,13 +208,12 @@
           </div>
           <p id="audio-status" class="audio-status" role="status" hidden></p>
         </div>
-        <audio id="dialogue-audio" preload="none" hidden></audio>
         <dl id="receipt" class="receipt" hidden></dl>
         <p id="reply-note" class="reply-note" hidden>可先試聽跟念，點日文句子送出。</p>
         <div id="options" class="options" role="group" aria-label="回覆與操作"></div>
       </section>
       <div id="transition" class="transition" aria-hidden="true"></div>
-      <audio id="door-chime" preload="auto" hidden></audio>
+      <audio id="dialogue-audio" preload="auto" hidden></audio>
       <div id="message" class="message" role="status">正在載入 3D 場景…</div>
     </section>
 
@@ -221,7 +225,7 @@
         <button type="button" data-direction="back" aria-label="向後走">↓</button>
         <button type="button" data-direction="right" aria-label="向右走">→</button>
       </div>
-      <span id="instruction">走到門口，或直接點門進去。</span>
+      <span id="instruction" role="status">走到門口，或直接點門進去。</span>
     </footer>
   </main>
 
@@ -243,7 +247,7 @@
       const question = panel.querySelector("#question");
       const translation = panel.querySelector("#translation");
       const replay = panel.querySelector("#replay");
-      const player = panel.querySelector("#dialogue-audio");
+      const player = document.querySelector("#dialogue-audio");
       const audioStatus = panel.querySelector("#audio-status");
       const replyNote = panel.querySelector("#reply-note");
       const options = panel.querySelector("#options");
@@ -262,6 +266,28 @@
         activePlayback?.button.removeAttribute("data-playing");
         activePlayback = null;
         player.pause();
+      }
+
+      function prepareDoorChime() {
+        player.src = checkoutClips["door-chime"];
+      }
+
+      function ringDoorChime() {
+        stopSpeech();
+        return new Promise((resolve) => {
+          const onComplete = () => finish(false);
+          function finish(blocked) {
+            window.clearTimeout(deadline);
+            player.removeEventListener("ended", onComplete);
+            player.removeEventListener("error", onComplete);
+            resolve(blocked);
+          }
+          const deadline = window.setTimeout(onComplete, 2000);
+          player.addEventListener("ended", onComplete, { once: true });
+          player.addEventListener("error", onComplete, { once: true });
+          player.currentTime = 0;
+          player.play().catch((error) => finish(error.name === "NotAllowedError"));
+        });
       }
 
       async function playSpeech(clip, button) {
@@ -461,7 +487,8 @@
         showChinese = !showChinese;
         updateHint();
       });
-      return { reset, stopSpeech };
+      prepareDoorChime();
+      return { reset, stopSpeech, ringDoorChime, prepareDoorChime };
     }
 
     function startGame(THREE) {
@@ -469,13 +496,15 @@
       const world = document.querySelector("#world");
       const checkoutPanel = document.querySelector("#checkout");
       const enterButton = document.querySelector("#enter");
+      const enterLabel = enterButton.textContent;
       const leaveButton = document.querySelector("#leave");
       const curtain = document.querySelector("#transition");
-      const doorChime = document.querySelector("#door-chime");
-      doorChime.src = checkoutClips["door-chime"];
       const locationLabel = document.querySelector("#location");
       const controls = document.querySelector("#touch-controls");
       const streetFooter = document.querySelector("#street-footer");
+      const streetInstruction = document.querySelector("#instruction");
+      const walkingHint = streetInstruction.textContent;
+      const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
@@ -964,6 +993,7 @@
       const streetCameraHome = streetCamera.position.clone();
       const doorApproach = new THREE.Vector3(shop.doorX, 0.65, shop.frontZ - 0.25);
       let openingStarted = null;
+      let waitingAtDoor = false;
       let currentScene = "street";
       let switching = false;
       let stride = 0;
@@ -995,6 +1025,8 @@
       function clearInput() {
         keys.clear();
         touchKeys.clear();
+        waitingAtDoor = false;
+        streetInstruction.textContent = walkingHint;
         for (const button of controls.querySelectorAll("button")) button.classList.remove("is-held");
       }
 
@@ -1006,58 +1038,62 @@
         streetCamera.updateProjectionMatrix();
       }
 
-      function changeScene(nextScene) {
+      async function changeScene(nextScene) {
         if (switching || nextScene === currentScene) return;
         switching = true;
         clearInput();
         const entering = nextScene === "counter";
         const fade = reducedMotion.matches ? 0 : 170;
-        const approach = entering && fade ? 300 : 0;
         if (entering) {
           enterButton.hidden = true;
-          if (approach) openingStarted = performance.now();
-          doorChime.currentTime = 0;
-          doorChime.play().catch(() => {});
+          if (fade) openingStarted = performance.now();
+          const needsTap = await checkout.ringDoorChime();
+          if (needsTap) {
+            openingStarted = null;
+            setDoorApproach(0);
+            enterButton.textContent = "播放門鈴並進店";
+            enterButton.hidden = false;
+            enterButton.focus({ preventScroll: true });
+            switching = false;
+            return;
+          }
         } else {
           checkout.stopSpeech();
           counterModel.resetPrinter();
         }
 
-        if (approach) {
-          window.setTimeout(() => curtain.classList.add("active"), approach);
-        } else if (fade) {
+        if (fade) {
           curtain.classList.add("active");
+          await wait(fade);
         }
-
-        window.setTimeout(() => {
-          openingStarted = null;
-          currentScene = nextScene;
-          const isStreet = currentScene === "street";
-          stage.dataset.scene = currentScene;
-          stage.setAttribute("aria-label", isStreet ? "3D 街道" : "3D 超商結帳櫃檯");
-          locationLabel.textContent = isStreet ? "街道" : "結帳櫃檯";
-          enterButton.hidden = !isStreet;
-          leaveButton.hidden = isStreet;
-          checkoutPanel.hidden = isStreet;
-          streetFooter.hidden = !isStreet;
-          if (isStreet) {
-            setDoorApproach(0);
-            player.root.position.copy(spawn);
-            player.root.rotation.y = 0.36;
-            player.body.position.y = 0;
-            player.leftFoot.rotation.x = 0;
-            player.rightFoot.rotation.x = 0;
-            stride = 0;
-            enterButton.focus({ preventScroll: true });
-          } else {
-            doorChime.pause();
-            checkout.reset();
-          }
-          layout();
-          renderer.domElement.style.cursor = "";
-          curtain.classList.remove("active");
-          window.setTimeout(() => { switching = false; }, fade);
-        }, entering ? Math.max(450, approach + fade) : fade);
+        openingStarted = null;
+        currentScene = nextScene;
+        const isStreet = currentScene === "street";
+        stage.dataset.scene = currentScene;
+        stage.setAttribute("aria-label", isStreet ? "3D 街道" : "3D 超商結帳櫃檯");
+        locationLabel.textContent = isStreet ? "街道" : "結帳櫃檯";
+        enterButton.hidden = !isStreet;
+        leaveButton.hidden = isStreet;
+        checkoutPanel.hidden = isStreet;
+        streetFooter.hidden = !isStreet;
+        if (isStreet) {
+          checkout.prepareDoorChime();
+          setDoorApproach(0);
+          enterButton.textContent = enterLabel;
+          player.root.position.copy(spawn);
+          player.root.rotation.y = 0.36;
+          player.body.position.y = 0;
+          player.leftFoot.rotation.x = 0;
+          player.rightFoot.rotation.x = 0;
+          stride = 0;
+          enterButton.focus({ preventScroll: true });
+        } else {
+          checkout.reset();
+        }
+        layout();
+        renderer.domElement.style.cursor = "";
+        curtain.classList.remove("active");
+        window.setTimeout(() => { switching = false; }, fade);
       }
 
       function isBlocked(x, z) {
@@ -1068,7 +1104,8 @@
       }
 
       function updatePlayer(delta) {
-        const directions = new Set(touchKeys.values());
+        const directions = new Set();
+        for (const input of touchKeys.values()) directions.add(input.direction);
         for (const code of keys) directions.add(keyDirections.get(code));
         move.set(0, 0, 0);
         if (directions.has("forward")) move.add(forward);
@@ -1078,7 +1115,7 @@
 
         const position = player.root.position;
         let walking = false;
-        if (move.lengthSq() > 0 && !switching) {
+        if (move.lengthSq() > 0 && !switching && !waitingAtDoor) {
           move.normalize();
           const distance = 3.45 * delta;
           const x = THREE.MathUtils.clamp(position.x + move.x * distance, -9.24, 9.24);
@@ -1091,7 +1128,12 @@
           player.root.rotation.y = Math.atan2(move.x, move.z);
 
           if (Math.abs(position.x - shop.doorX) < 0.91 && position.z < 0.03 && position.z > shop.frontZ) {
-            changeScene("counter");
+            if ([...touchKeys.values()].some((input) => input.isTouch)) {
+              waitingAtDoor = true;
+              streetInstruction.textContent = "放開方向鍵進店。";
+            } else {
+              changeScene("counter");
+            }
           }
         }
 
@@ -1136,17 +1178,29 @@
       enterButton.addEventListener("click", () => changeScene("counter"));
       leaveButton.addEventListener("click", () => changeScene("street"));
 
+      controls.addEventListener("contextmenu", (event) => event.preventDefault());
+      controls.addEventListener("selectstart", (event) => event.preventDefault());
+      // Starting audio from touchend also works when the first gesture is a long press.
+      controls.addEventListener("touchend", () => {
+        if (waitingAtDoor) changeScene("counter");
+      });
+      controls.addEventListener("touchcancel", clearInput);
       for (const button of controls.querySelectorAll("button")) {
         button.addEventListener("pointerdown", (event) => {
           if (switching || event.button !== 0) return;
           button.setPointerCapture(event.pointerId);
-          touchKeys.set(event.pointerId, button.dataset.direction);
+          touchKeys.set(event.pointerId, {
+            direction: button.dataset.direction,
+            isTouch: event.pointerType === "touch"
+          });
           button.classList.add("is-held");
         });
         for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"]) {
           button.addEventListener(eventName, (event) => {
             touchKeys.delete(event.pointerId);
-            if (![...touchKeys.values()].includes(button.dataset.direction)) button.classList.remove("is-held");
+            if (![...touchKeys.values()].some((input) => input.direction === button.dataset.direction)) {
+              button.classList.remove("is-held");
+            }
           });
         }
       }
