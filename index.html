@@ -688,13 +688,15 @@
       const street = new THREE.Scene();
       const counter = new THREE.Scene();
       const platform = new THREE.Scene();
-      const streetCamera = createCamera([9, 12, 17], [0, 0.45, 0.25]);
+      const streetCameraTarget = [1.25, 0.45, 0.25];
+      const streetCamera = createCamera([4.25, 12, 17], streetCameraTarget);
       const counterCamera = createCamera([4.4, 4.5, 12], [0, 1.2, -0.5]);
       const platformCamera = createCamera([6.2, 8.7, 15], [0, 0.7, 0.4]);
       const materials = new Map();
       const solidObjects = [];
+      const streetBounds = { minX: -9.6, maxX: 27.4, minZ: -5.95, maxZ: 5.95 };
       const shop = { doorX: 0.9, frontZ: -0.65 };
-      const station = { doorX: 7.26, frontZ: -1.18 };
+      const station = { doorX: 23.15, frontZ: -2.14 };
       const spawn = new THREE.Vector3(2.56, 0.11, 3.15);
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -814,17 +816,23 @@
 
       function buildStreet() {
         lights(street, 0xb8cdf7, 0x57628a, 2.25, 0xffdfaa);
-        box(street, [19.2, 0.75, 11.9], [0, -0.43, 0], 0x35435f);
-        box(street, [19.25, 0.12, 11.95], [0, -0.06, 0], 0x485974);
-        box(street, [19.05, 0.11, 8.45], [0, 0.055, -1.68], 0x8997a5);
-        box(street, [19.06, 0.19, 0.15], [0, 0.016, 2.6], 0xbdc0b6);
-        box(street, [19.05, 0.075, 3.35], [0, -0.028, 4.22], 0x46516b);
-        box(street, [19.05, 0.11, 0.45], [0, 0.055, 5.72], 0x8290a4);
-        for (const x of [-8, -5.2, -2.4, 0.4, 3.2, 6, 8.8]) {
+        const width = streetBounds.maxX - streetBounds.minX;
+        const center = (streetBounds.minX + streetBounds.maxX) / 2;
+        const depth = streetBounds.maxZ - streetBounds.minZ;
+        box(street, [width, 0.75, depth], [center, -0.43, 0], 0x35435f);
+        box(street, [width, 0.12, depth], [center, -0.06, 0], 0x485974);
+        box(street, [width - 0.15, 0.11, 8.45], [center, 0.055, -1.68], 0x8997a5);
+        box(street, [width - 0.15, 0.19, 0.15], [center, 0.016, 2.6], 0xbdc0b6);
+        box(street, [width - 0.15, 0.075, 3.35], [center, -0.028, 4.22], 0x46516b);
+        box(street, [width - 0.15, 0.11, 0.45], [center, 0.055, 5.72], 0x8290a4);
+        for (let x = -8; x < streetBounds.maxX - 1; x += 2.8) {
+          if (Math.abs(x - 18.6) < 1.5) continue;
           box(street, [1.34, 0.008, 0.061], [x, 0.015, 4.29], 0xd4c58e);
         }
-        for (let z = 3.04; z <= 5.36; z += 0.51) {
-          box(street, [1.23, 0.008, 0.23], [-5.75, 0.016, z], 0xe8e3c9);
+        for (const x of [-5.75, 18.6]) {
+          for (let z = 3.04; z <= 5.36; z += 0.51) {
+            box(street, [1.23, 0.008, 0.23], [x, 0.016, z], 0xe8e3c9);
+          }
         }
 
         const facade = group(street, 0.35, 0, -2.89);
@@ -891,6 +899,39 @@
         box(apartment, [0.83, 1.03, 0.08], [0.98, 0.63, 1.91], 0x48596d);
         solidObjects.push({ minX: -8.7, maxX: -4.9, minZ: -4.86, maxZ: -1.02 });
 
+        // The sidewalk continues past the corner sign and garden to the station plaza.
+        const wayfinding = group(street, 10.2, 0, 2.12);
+        cylinder(wayfinding, 0.054, 2.35, [0, 1.28, 0], 0x465770);
+        box(wayfinding, [2.42, 0.52, 0.11], [0, 2.09, 0], 0x315870);
+        printedPanel(wayfinding, [2.3, 0.4], [0, 2.09, 0.06], "#315870", "#eef3e8", "しおかぜ駅 →");
+        solidObjects.push({ minX: 10.11, maxX: 10.29, minZ: 2.03, maxZ: 2.21 });
+
+        box(street, [8.9, 0.24, 3.25], [13.05, 0.23, -4.08], 0x778b91);
+        box(street, [8.62, 0.06, 2.99], [13.05, 0.36, -4.08], 0x48665f);
+        solidObjects.push({ minX: 8.6, maxX: 17.5, minZ: -5.71, maxZ: -2.45 });
+        for (const x of [9.65, 12.7, 15.94]) {
+          cylinder(street, 0.09, 1.5, [x, 1.09, -4.2], 0x7f6957, 7);
+          for (const [dx, y, radius] of [[-0.44, 2.18, 0.76], [0.37, 2.52, 0.86], [0, 2.82, 0.7]]) {
+            const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(radius, 0), material(dx < 0 ? 0x52746f : 0x66867e));
+            leaves.position.set(x + dx, y, -4.2);
+            street.add(leaves);
+          }
+        }
+        const bench = group(street, 13.05, 0, -1.85);
+        box(bench, [2.7, 0.12, 0.55], [0, 0.49, 0], 0xb78965);
+        box(bench, [2.7, 0.27, 0.09], [0, 0.77, -0.26], 0xa87860);
+        for (const x of [-0.98, 0.98]) {
+          box(bench, [0.13, 0.45, 0.42], [x, 0.31, 0], 0x43546a);
+        }
+        solidObjects.push({ minX: 11.7, maxX: 14.4, minZ: -2.16, maxZ: -1.57 });
+
+        box(street, [7.35, 0.018, 4.7], [station.doorX - 0.25, 0.111, -0.75], 0x9aafb6);
+        for (let offset = -3; offset <= 3; offset++) {
+          box(street, [0.022, 0.004, 4.7], [station.doorX - 0.25 + offset, 0.122, -0.75], 0x879ca8);
+        }
+        for (let z = -2.9; z <= 1.6; z += 0.75) {
+          box(street, [7.35, 0.004, 0.022], [station.doorX - 0.25, 0.123, z], 0x879ca8);
+        }
         const stationEntrance = group(street, station.doorX, 0, station.frontZ);
         box(stationEntrance, [3.51, 2.62, 3.65], [0, 1.42, -1.83], 0xb3c1c7);
         box(stationEntrance, [3.76, 0.24, 3.91], [0, 2.79, -1.79], 0x38596d);
@@ -904,9 +945,10 @@
         box(stationEntrance, [2.64, 0.125, 0.8], [0, 0.17, 0.35], 0xb9c6c6);
         box(stationEntrance, [1.82, 0.02, 0.28], [0, 0.239, 0.54], 0xe3bc69, true);
         printedPanel(stationEntrance, [2.31, 0.36], [0, 2.53, 0.044], "#d9f0ed", "#23485c", "しおかぜ駅");
-        solidObjects.push({ minX: 5.47, maxX: 9.06, minZ: -4.92, maxZ: -1.17 });
+        solidObjects.push({ minX: station.doorX - 1.79, maxX: station.doorX + 1.79,
+          minZ: station.frontZ - 3.7, maxZ: station.frontZ });
 
-        for (const [x, z] of [[-8.1, 1.67], [8.48, 1.52]]) {
+        for (const [x, z] of [[-8.1, 1.67], [7.85, -0.5], [26.05, 0.95]]) {
           shadow(street, x, z, 0.78, 0.52);
           box(street, [0.88, 0.32, 0.88], [x, 0.27, z], 0x747e8f);
           box(street, [0.74, 0.02, 0.74], [x, 0.438, z], 0x514b52);
@@ -919,11 +961,13 @@
           solidObjects.push({ minX: x - 0.45, maxX: x + 0.45, minZ: z - 0.45, maxZ: z + 0.45 });
         }
 
-        const lamp = group(street, -3.91, 0, 2.35);
-        cylinder(lamp, 0.057, 2.78, [0, 1.49, 0], 0x465770);
-        box(lamp, [0.53, 0.065, 0.074], [0.24, 2.86, 0], 0x54617b);
-        box(lamp, [0.28, 0.095, 0.29], [0.47, 2.82, 0], 0xffd388, true);
-        solidObjects.push({ minX: -4.02, maxX: -3.80, minZ: 2.24, maxZ: 2.46 });
+        for (const x of [-3.91, 15.65, 24.2]) {
+          const lamp = group(street, x, 0, 2.35);
+          cylinder(lamp, 0.057, 2.78, [0, 1.49, 0], 0x465770);
+          box(lamp, [0.53, 0.065, 0.074], [0.24, 2.86, 0], 0x54617b);
+          box(lamp, [0.28, 0.095, 0.29], [0.47, 2.82, 0], 0xffd388, true);
+          solidObjects.push({ minX: x - 0.11, maxX: x + 0.11, minZ: 2.24, maxZ: 2.46 });
+        }
 
         box(street, [0.64, 1.32, 0.54], [5.63, 0.77, -0.76], 0x8e5a69);
         box(street, [0.51, 0.63, 0.022], [5.63, 1.01, -0.48], 0xffd497, true);
@@ -1275,12 +1319,12 @@
           label: new THREE.Vector3(station.doorX, 3.08, station.frontZ + 0.16), releaseHint: "放開方向鍵進站。"
         }
       ];
-      const playerShadow = shadow(street, spawn.x, spawn.z, 0.46, 0.34, 0.12);
+      const playerShadow = shadow(street, spawn.x, spawn.z, 0.46, 0.34, 0.128);
       const player = makePerson(street, 0xf5bd64, 0x535b83, true);
       player.root.position.copy(spawn);
       player.root.rotation.y = 0.36;
 
-      // Move relative to the fixed street camera, so the keys match the screen.
+      // The camera translates without rotating, so the movement axes stay screen-relative.
       const forward = streetCamera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
       const right = new THREE.Vector3(-forward.z, 0, forward.x);
       const move = new THREE.Vector3();
@@ -1296,8 +1340,16 @@
       const pointer = new THREE.Vector2();
       const projectedLabel = new THREE.Vector3();
       const streetCameraHome = streetCamera.position.clone();
-      const doorApproach = new THREE.Vector3(shop.doorX, 0.65, shop.frontZ - 0.25);
+      const doorCameraPosition = streetCameraHome.clone().add(new THREE.Vector3(
+        shop.doorX - streetCameraTarget[0], 0.65, shop.frontZ - streetCameraTarget[2]
+      ));
+      const followOffset = new THREE.Vector3();
+      const followTarget = new THREE.Vector3();
+      const stationDirectionHint = "沿街往右走就會到車站 →";
+      let viewWidth = 0;
+      let viewHeight = 0;
       let openingStarted = null;
+      let doorProgress = 0;
       let pendingEntrance = null;
       let currentScene = "street";
       let switching = false;
@@ -1305,13 +1357,13 @@
       let previousFrame = performance.now();
 
       function layout() {
-        const width = world.clientWidth;
-        const height = world.clientHeight;
-        if (!width || !height) return;
-        const aspect = width / height;
-        renderer.setSize(width, height, false);
+        viewWidth = world.clientWidth;
+        viewHeight = world.clientHeight;
+        if (!viewWidth || !viewHeight) return;
+        const aspect = viewWidth / viewHeight;
+        renderer.setSize(viewWidth, viewHeight, false);
         for (const [camera, minimumWidth, minimumHeight] of [
-          [streetCamera, 23.7, 12.8],
+          [streetCamera, 20.5, 11.6],
           [counterCamera, 13.7, 9.05],
           [platformCamera, 19.6, 11.7]
         ]) {
@@ -1323,11 +1375,25 @@
           camera.updateProjectionMatrix();
           camera.updateMatrixWorld();
         }
+        updateEntranceMarkers();
+      }
+
+      function updateEntranceMarkers() {
+        if (currentScene !== "street" || switching) return;
         for (const entrance of entrances) {
           projectedLabel.copy(entrance.label).project(streetCamera);
-          entrance.button.style.left = `${(projectedLabel.x + 1) * 50}%`;
-          entrance.button.style.top = `${(1 - projectedLabel.y) * 50}%`;
+          const left = Math.round((projectedLabel.x + 1) * viewWidth / 2);
+          const top = Math.round((1 - projectedLabel.y) * viewHeight / 2);
+          const visible = left >= 60 && left <= viewWidth - 60 && top >= 50 && top <= viewHeight - 9;
+          entrance.button.hidden = !visible;
+          if (visible) {
+            entrance.button.style.left = `${left}px`;
+            entrance.button.style.top = `${top}px`;
+          }
         }
+        const hint = pendingEntrance?.releaseHint ||
+          (stationButton.hidden && player.root.position.x < station.doorX ? stationDirectionHint : walkingHint);
+        if (streetInstruction.textContent !== hint) streetInstruction.textContent = hint;
       }
 
       function clearInput() {
@@ -1340,10 +1406,21 @@
 
       function setDoorApproach(progress) {
         door.setOpening(1 - (1 - progress) ** 3);
-        const ease = progress * progress * (3 - 2 * progress);
-        streetCamera.position.copy(streetCameraHome).addScaledVector(doorApproach, ease);
-        streetCamera.zoom = 1 + 0.16 * ease;
-        streetCamera.updateProjectionMatrix();
+        doorProgress = progress * progress * (3 - 2 * progress);
+      }
+
+      function updateStreetCamera(delta, snap = false) {
+        const position = player.root.position;
+        followTarget.set(position.x - spawn.x, 0, (position.z - spawn.z) * 0.55);
+        followOffset.lerp(followTarget, snap || reducedMotion.matches ? 1 : 1 - Math.exp(-8 * delta));
+        streetCamera.position.copy(streetCameraHome).add(followOffset).lerp(doorCameraPosition, doorProgress);
+        const zoom = 1 + 0.16 * doorProgress;
+        if (streetCamera.zoom !== zoom) {
+          streetCamera.zoom = zoom;
+          streetCamera.updateProjectionMatrix();
+        }
+        streetCamera.updateMatrixWorld();
+        updateEntranceMarkers();
       }
 
       async function changeScene(nextScene) {
@@ -1360,9 +1437,9 @@
             openingStarted = null;
             setDoorApproach(0);
             enterButton.textContent = "播放門鈴並進店";
-            for (const entrance of entrances) entrance.button.hidden = false;
-            enterButton.focus({ preventScroll: true });
             switching = false;
+            updateStreetCamera(0, true);
+            enterButton.focus({ preventScroll: true });
             return;
           }
         } else if (nextScene === "platform") {
@@ -1382,11 +1459,11 @@
         currentScene = nextScene;
         const isStreet = currentScene === "street";
         const isPlatform = currentScene === "platform";
+        const exitEntrance = isStreet ? entrances.find((entrance) => entrance.scene === previousScene) : null;
         const location = { street: "街道", counter: "結帳櫃檯", platform: "車站月台" }[currentScene];
         stage.dataset.scene = currentScene;
         stage.setAttribute("aria-label", `3D ${location}`);
         locationLabel.textContent = location;
-        for (const entrance of entrances) entrance.button.hidden = !isStreet;
         leaveButton.hidden = isStreet;
         checkoutPanel.hidden = currentScene !== "counter";
         stationPanel.hidden = !isPlatform;
@@ -1395,23 +1472,28 @@
           checkout.prepareDoorChime();
           setDoorApproach(0);
           enterButton.textContent = enterLabel;
-          player.root.position.copy(spawn);
-          player.root.rotation.y = 0.36;
+          if (previousScene === "platform") {
+            player.root.position.set(station.doorX, spawn.y, station.frontZ + 1.23);
+            player.root.rotation.y = 0;
+          } else {
+            player.root.position.copy(spawn);
+            player.root.rotation.y = 0.36;
+          }
           player.body.position.y = 0;
           player.leftFoot.rotation.x = 0;
           player.rightFoot.rotation.x = 0;
           stride = 0;
-          const previousEntrance = entrances.find((entrance) => entrance.scene === previousScene);
-          previousEntrance?.button.focus({ preventScroll: true });
+          updateStreetCamera(0, true);
         } else if (isPlatform) {
           stationExercise.focus();
         } else {
           checkout.reset();
         }
+        switching = false;
         layout();
+        exitEntrance?.button.focus({ preventScroll: true });
         renderer.domElement.style.cursor = "";
         curtain.classList.remove("active");
-        switching = false;
       }
 
       function isBlocked(x, z) {
@@ -1436,8 +1518,8 @@
         if (move.lengthSq() > 0 && !switching && !pendingEntrance) {
           move.normalize();
           const distance = 3.45 * delta;
-          const x = THREE.MathUtils.clamp(position.x + move.x * distance, -9.24, 9.24);
-          const z = THREE.MathUtils.clamp(position.z + move.z * distance, -5.57, 5.56);
+          const x = THREE.MathUtils.clamp(position.x + move.x * distance, streetBounds.minX + 0.36, streetBounds.maxX - 0.36);
+          const z = THREE.MathUtils.clamp(position.z + move.z * distance, streetBounds.minZ + 0.38, streetBounds.maxZ - 0.39);
           const startX = position.x;
           const startZ = position.z;
           if (!isBlocked(x, position.z)) position.x = x;
@@ -1451,7 +1533,6 @@
           if (entrance) {
             if ([...touchKeys.values()].some((input) => input.isTouch)) {
               pendingEntrance = entrance;
-              streetInstruction.textContent = entrance.releaseHint;
             } else {
               changeScene(entrance.scene);
             }
@@ -1538,6 +1619,7 @@
           if (openingStarted !== null) {
             setDoorApproach(THREE.MathUtils.clamp((time - openingStarted) / 300, 0, 1));
           }
+          updateStreetCamera(delta);
           renderer.render(street, streetCamera);
         } else if (currentScene === "platform") {
           platformModel.animate(time);
@@ -1553,7 +1635,6 @@
       layout();
       draw(performance.now());
       renderer.setAnimationLoop(draw);
-      for (const entrance of entrances) entrance.button.hidden = false;
       controls.hidden = false;
       document.querySelector("#message").hidden = true;
     }
