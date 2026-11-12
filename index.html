@@ -46,14 +46,17 @@
       width: 100%; height: clamp(380px, calc(100dvh - 165px), 800px);
       background: radial-gradient(ellipse at 53% 48%, #3a4d70 0%, #25344e 53%, #192438 100%);
     }
-    .stage:is([data-scene="counter"], [data-scene="platform"]) {
+    .stage.has-panel {
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, 36%);
     }
     .stage[data-scene="counter"] {
       background: radial-gradient(ellipse at 50% 44%, #f0d6a5 0%, #cfad7c 57%, #917659 100%);
     }
-    .stage[data-scene="platform"] {
+    .stage:is([data-scene="platform"], [data-scene="ride"], [data-scene="aoba-platform"]) {
       background: radial-gradient(ellipse at 45% 37%, #657e91 0%, #41576d 55%, #263747 100%);
+    }
+    .stage[data-scene="aoba-street"] {
+      background: radial-gradient(ellipse at 51% 48%, #426369 0%, #273f48 54%, #192937 100%);
     }
     .world { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; }
     .stage canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
@@ -152,8 +155,14 @@
     .station-actions .reply, #station-retry { text-align: center; }
     .station-panel .reply.primary { background: #24596a; border-color: #24596a; }
     .station-panel .reply.primary:hover { background: #194856; }
+    .journey-route {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+      margin: 5px 0 0; padding: 13px; border-radius: 9px; background: #e4eeef;
+      color: #264b57; font-weight: 700;
+    }
+    .journey-actions { display: grid; gap: 9px; }
+    .journey-actions .reply { text-align: center; }
     .station-feedback { margin: 0 0 12px; font-size: 14px; line-height: 1.55; color: #38525a; }
-    .station-feedback[data-result="arrived"] { color: #255448; font-weight: 700; }
     .station-feedback[data-result="wrong"] { color: #704a29; font-weight: 700; }
     .receipt { margin: 0 0 12px; padding: 10px 14px; background: #fffdf8; border: 1px solid #e0d7c5; border-radius: 8px; }
     .receipt-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 14px; }
@@ -183,8 +192,8 @@
       user-select: none;
     }
     @media (max-width: 820px) {
-      .stage:is([data-scene="counter"], [data-scene="platform"]) { grid-template-columns: minmax(0, 1fr); height: auto; }
-      .stage:is([data-scene="counter"], [data-scene="platform"]) .world { height: clamp(205px, 34dvh, 340px); }
+      .stage.has-panel { grid-template-columns: minmax(0, 1fr); height: auto; }
+      .stage.has-panel .world { height: clamp(205px, 34dvh, 340px); }
       .checkout { border-left: 0; border-top: 1px solid #e7d7bb; }
     }
     @media (pointer: coarse), (max-width: 650px) {
@@ -214,13 +223,14 @@
         <span class="mark" aria-hidden="true">夜</span>
         <h1>今晚去超商</h1>
       </div>
-      <div id="location" class="location" role="status">街道</div>
+      <div id="location" class="location" role="status">しおかぜ站前</div>
     </header>
 
     <section id="stage" class="stage" data-scene="street" aria-label="3D 場景">
       <div id="world" class="world">
         <button id="enter" class="entry" type="button" hidden>進入超商 ↗</button>
         <button id="enter-station" class="entry station-entry" type="button" aria-label="進入車站" hidden>車站 ↗</button>
+        <button id="enter-aoba" class="entry station-entry" type="button" aria-label="進入青葉駅" hidden>青葉駅 ↗</button>
         <button id="leave" class="return" type="button" hidden>← 回到街道</button>
       </div>
       <section id="checkout" class="checkout" aria-labelledby="checkout-title" hidden>
@@ -269,6 +279,18 @@
           <button id="station-wait" class="reply" type="button">等下一班</button>
         </div>
         <button id="station-retry" class="reply primary" type="button" hidden>再練習一次</button>
+      </section>
+      <section id="journey" class="checkout station-panel" aria-labelledby="journey-title" hidden>
+        <div class="checkout-top">
+          <h2 id="journey-title" tabindex="-1"></h2>
+        </div>
+        <p id="journey-route" class="journey-route" hidden>
+          <span id="journey-from" lang="ja"></span><span aria-hidden="true">→</span><span id="journey-to" lang="ja"></span>
+        </p>
+        <div id="arrival-actions" class="journey-actions" hidden>
+          <button id="exit-aoba" class="reply primary" type="button">出站到青葉站前</button>
+          <button id="ride-home" class="reply" type="button">搭車回しおかぜ駅</button>
+        </div>
       </section>
       <div id="transition" class="transition" aria-hidden="true"></div>
       <audio id="dialogue-audio" preload="auto" hidden></audio>
@@ -549,7 +571,7 @@
       return { reset, stopSpeech, ringDoorChime, prepareDoorChime };
     }
 
-    function createStationExercise(panel, model, player) {
+    function createStationExercise(panel, model, player, onCorrectBoard) {
       const title = panel.querySelector("#station-title");
       const subtitles = panel.querySelector("#station-subtitles");
       const transcript = panel.querySelector("#station-transcript");
@@ -642,16 +664,17 @@
 
       panel.querySelector("#station-board").addEventListener("click", () => {
         const name = trains[trainIndex].destination;
-        const correct = name === destination;
+        if (name === destination) {
+          onCorrectBoard();
+          return;
+        }
         stop();
         audioStatus.hidden = true;
         actions.hidden = true;
         retry.hidden = false;
         retry.focus({ preventScroll: true });
         model.depart();
-        showFeedback(correct
-          ? "搭對了！你已搭上開往青葉駅的列車。"
-          : `你搭上了開往${name}的列車。目的地是青葉駅。`, correct ? "arrived" : "wrong");
+        showFeedback(`你搭上了開往${name}的列車。目的地是青葉駅。`, "wrong");
       });
 
       retry.addEventListener("click", () => {
@@ -666,9 +689,16 @@
       const world = document.querySelector("#world");
       const checkoutPanel = document.querySelector("#checkout");
       const stationPanel = document.querySelector("#station");
+      const journeyPanel = document.querySelector("#journey");
+      const journeyTitle = document.querySelector("#journey-title");
+      const journeyRoute = document.querySelector("#journey-route");
+      const journeyFrom = document.querySelector("#journey-from");
+      const journeyTo = document.querySelector("#journey-to");
+      const arrivalActions = document.querySelector("#arrival-actions");
       const audio = document.querySelector("#dialogue-audio");
       const enterButton = document.querySelector("#enter");
       const stationButton = document.querySelector("#enter-station");
+      const aobaButton = document.querySelector("#enter-aoba");
       const enterLabel = enterButton.textContent;
       const leaveButton = document.querySelector("#leave");
       const curtain = document.querySelector("#transition");
@@ -686,6 +716,7 @@
       world.prepend(renderer.domElement);
 
       const street = new THREE.Scene();
+      const aobaStreet = new THREE.Scene();
       const counter = new THREE.Scene();
       const platform = new THREE.Scene();
       const streetCameraTarget = [1.25, 0.45, 0.25];
@@ -694,10 +725,16 @@
       const platformCamera = createCamera([6.2, 8.7, 15], [0, 0.7, 0.4]);
       const materials = new Map();
       const solidObjects = [];
+      const aobaObstacles = [];
       const streetBounds = { minX: -9.6, maxX: 27.4, minZ: -5.95, maxZ: 5.95 };
+      const aobaBounds = { minX: -10.4, maxX: 14.2, minZ: -5.95, maxZ: 5.95 };
       const shop = { doorX: 0.9, frontZ: -0.65 };
       const station = { doorX: 23.15, frontZ: -2.14 };
+      const aobaStation = { doorX: -2.05, frontZ: -1.12 };
       const spawn = new THREE.Vector3(2.56, 0.11, 3.15);
+      const aobaSpawn = new THREE.Vector3(aobaStation.doorX, 0.11, aobaStation.frontZ + 1.69);
+      const originName = "しおかぜ駅";
+      const aobaName = "青葉駅";
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
       function createCamera(offset, target) {
@@ -814,26 +851,43 @@
         return { root, body, leftFoot, rightFoot };
       }
 
-      function buildStreet() {
-        lights(street, 0xb8cdf7, 0x57628a, 2.25, 0xffdfaa);
-        const width = streetBounds.maxX - streetBounds.minX;
-        const center = (streetBounds.minX + streetBounds.maxX) / 2;
-        const depth = streetBounds.maxZ - streetBounds.minZ;
-        box(street, [width, 0.75, depth], [center, -0.43, 0], 0x35435f);
-        box(street, [width, 0.12, depth], [center, -0.06, 0], 0x485974);
-        box(street, [width - 0.15, 0.11, 8.45], [center, 0.055, -1.68], 0x8997a5);
-        box(street, [width - 0.15, 0.19, 0.15], [center, 0.016, 2.6], 0xbdc0b6);
-        box(street, [width - 0.15, 0.075, 3.35], [center, -0.028, 4.22], 0x46516b);
-        box(street, [width - 0.15, 0.11, 0.45], [center, 0.055, 5.72], 0x8290a4);
-        for (let x = -8; x < streetBounds.maxX - 1; x += 2.8) {
-          if (Math.abs(x - 18.6) < 1.5) continue;
-          box(street, [1.34, 0.008, 0.061], [x, 0.015, 4.29], 0xd4c58e);
+      function buildStreetSurface(scene, bounds, crossings, pavement) {
+        const width = bounds.maxX - bounds.minX;
+        const center = (bounds.minX + bounds.maxX) / 2;
+        const depth = bounds.maxZ - bounds.minZ;
+        box(scene, [width, 0.75, depth], [center, -0.43, 0], 0x35435f);
+        box(scene, [width, 0.12, depth], [center, -0.06, 0], 0x485974);
+        box(scene, [width - 0.15, 0.11, 8.45], [center, 0.055, -1.68], pavement);
+        box(scene, [width - 0.15, 0.19, 0.15], [center, 0.016, 2.6], 0xbdc0b6);
+        box(scene, [width - 0.15, 0.075, 3.35], [center, -0.028, 4.22], 0x46516b);
+        box(scene, [width - 0.15, 0.11, 0.45], [center, 0.055, 5.72], pavement);
+        for (let x = bounds.minX + 1.6; x < bounds.maxX - 1; x += 2.8) {
+          if (crossings.some((crossing) => Math.abs(x - crossing) < 1.5)) continue;
+          box(scene, [1.34, 0.008, 0.061], [x, 0.015, 4.29], 0xd4c58e);
         }
-        for (const x of [-5.75, 18.6]) {
+        for (const x of crossings) {
           for (let z = 3.04; z <= 5.36; z += 0.51) {
-            box(street, [1.23, 0.008, 0.23], [x, 0.016, z], 0xe8e3c9);
+            box(scene, [1.23, 0.008, 0.23], [x, 0.016, z], 0xe8e3c9);
           }
         }
+      }
+
+      function placeStreetTree(scene, obstacles, x, z) {
+        shadow(scene, x, z, 0.78, 0.52);
+        box(scene, [0.88, 0.32, 0.88], [x, 0.27, z], 0x747e8f);
+        box(scene, [0.74, 0.02, 0.74], [x, 0.438, z], 0x514b52);
+        cylinder(scene, 0.085, 1.07, [x, 0.91, z], 0x82624f, 7);
+        for (const [dx, y, scale, color] of [[0, 1.72, 0.74, 0x537a79], [-0.38, 1.56, 0.45, 0x658c83], [0.37, 1.9, 0.49, 0x77968c]]) {
+          const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(scale, 0), material(color));
+          leaves.position.set(x + dx, y, z);
+          scene.add(leaves);
+        }
+        obstacles.push({ minX: x - 0.45, maxX: x + 0.45, minZ: z - 0.45, maxZ: z + 0.45 });
+      }
+
+      function buildStreet() {
+        lights(street, 0xb8cdf7, 0x57628a, 2.25, 0xffdfaa);
+        buildStreetSurface(street, streetBounds, [-5.75, 18.6], 0x8997a5);
 
         const facade = group(street, 0.35, 0, -2.89);
         box(facade, [9.15, 3.05, 4.44], [0, 1.63, 0], 0xf1e4ca);
@@ -944,21 +998,12 @@
         }
         box(stationEntrance, [2.64, 0.125, 0.8], [0, 0.17, 0.35], 0xb9c6c6);
         box(stationEntrance, [1.82, 0.02, 0.28], [0, 0.239, 0.54], 0xe3bc69, true);
-        printedPanel(stationEntrance, [2.31, 0.36], [0, 2.53, 0.044], "#d9f0ed", "#23485c", "しおかぜ駅");
+        printedPanel(stationEntrance, [2.31, 0.36], [0, 2.53, 0.044], "#d9f0ed", "#23485c", originName);
         solidObjects.push({ minX: station.doorX - 1.79, maxX: station.doorX + 1.79,
           minZ: station.frontZ - 3.7, maxZ: station.frontZ });
 
         for (const [x, z] of [[-8.1, 1.67], [7.85, -0.5], [26.05, 0.95]]) {
-          shadow(street, x, z, 0.78, 0.52);
-          box(street, [0.88, 0.32, 0.88], [x, 0.27, z], 0x747e8f);
-          box(street, [0.74, 0.02, 0.74], [x, 0.438, z], 0x514b52);
-          cylinder(street, 0.085, 1.07, [x, 0.91, z], 0x82624f, 7);
-          for (const [dx, y, scale, color] of [[0, 1.72, 0.74, 0x537a79], [-0.38, 1.56, 0.45, 0x658c83], [0.37, 1.9, 0.49, 0x77968c]]) {
-            const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(scale, 0), material(color));
-            leaves.position.set(x + dx, y, z);
-            street.add(leaves);
-          }
-          solidObjects.push({ minX: x - 0.45, maxX: x + 0.45, minZ: z - 0.45, maxZ: z + 0.45 });
+          placeStreetTree(street, solidObjects, x, z);
         }
 
         for (const x of [-3.91, 15.65, 24.2]) {
@@ -984,6 +1029,69 @@
             panels[1].position.x = offset;
           }
         };
+      }
+
+      function buildAobaStreet() {
+        lights(aobaStreet, 0xc0e7ea, 0x5b7880, 2.2, 0xffe1ac);
+        buildStreetSurface(aobaStreet, aobaBounds, [3.5], 0x98a5a6);
+
+        const entrance = group(aobaStreet, aobaStation.doorX, 0, aobaStation.frontZ);
+        box(entrance, [5.45, 3.12, 4.1], [0, 1.67, -2.05], 0xe5d4b4);
+        box(entrance, [5.72, 0.27, 4.28], [0, 3.35, -2.04], 0x416f64);
+        box(entrance, [4.53, 0.21, 3.5], [0, 3.58, -2.15], 0x548275);
+        box(entrance, [3.52, 0.16, 2.83], [0, 3.76, -2.15], 0x618e7e);
+        box(entrance, [5.56, 0.16, 1.05], [0, 2.45, 0.26], 0x49786d);
+        box(entrance, [3.92, 0.045, 0.82], [0, 2.35, 0.32], 0xffdea0, true);
+        printedPanel(entrance, [2.95, 0.52], [0, 2.91, 0.022], "#386959", "#fff4dc", aobaName);
+        box(entrance, [2.54, 2.08, 0.12], [0, 1.25, 0.07], 0x4a615d);
+        for (const x of [-0.57, 0.57]) {
+          box(entrance, [1.05, 1.73, 0.025], [x, 1.28, 0.14], 0x9dccb3, true);
+          box(entrance, [0.044, 0.22, 0.045], [x * 0.33, 1.22, 0.165], 0x4a615d);
+        }
+        for (const x of [-1.93, 1.93]) {
+          box(entrance, [0.78, 1.35, 0.05], [x, 1.45, 0.035], 0xb09168);
+          box(entrance, [0.66, 1.18, 0.025], [x, 1.46, 0.067], 0xf6d495, true);
+        }
+        box(entrance, [3.1, 0.12, 0.82], [0, 0.17, 0.38], 0xc1c5b7);
+        box(entrance, [2.6, 0.02, 0.29], [0, 0.24, 0.55], 0xe2b568, true);
+        aobaObstacles.push({ minX: aobaStation.doorX - 2.75, maxX: aobaStation.doorX + 2.75,
+          minZ: aobaStation.frontZ - 4.1, maxZ: aobaStation.frontZ });
+
+        for (const [x, width, height, color, trim, label] of [
+          [4.55, 4.5, 3.45, 0xdac5b4, 0x876d6f, "青葉書店"],
+          [9.63, 4.8, 2.64, 0xb3c6ba, 0x52796d, "花屋"]
+        ]) {
+          const storefront = group(aobaStreet, x, 0, -3.09);
+          box(storefront, [width, height, 3.65], [0, 0.11 + height / 2, 0], color);
+          box(storefront, [width + 0.24, 0.22, 3.84], [0, height + 0.17, 0], trim);
+          box(storefront, [width + 0.2, 0.12, 0.72], [0, 2.13, 2.06], trim);
+          printedPanel(storefront, [2.35, 0.34], [0, 2.4, 1.846], "#f0ddbb", "#354f4e", label);
+          box(storefront, [width - 0.55, 1.43, 0.09], [0, 1.15, 1.85], 0x566c69);
+          for (const dx of [-1.22, 0, 1.22]) {
+            box(storefront, [1.08, 1.27, 0.035], [dx, 1.15, 1.904], 0xf3ce91, true);
+            box(storefront, [0.98, 0.09, 0.025], [dx, 0.76, 1.932], 0xbd9d7b, true);
+          }
+          aobaObstacles.push({ minX: x - width / 2, maxX: x + width / 2, minZ: -4.92, maxZ: -1.24 });
+        }
+
+        const bench = group(aobaStreet, -6.35, 0, -2.28);
+        box(bench, [1.96, 0.12, 0.51], [0, 0.51, 0], 0xab7b61);
+        box(bench, [1.96, 0.29, 0.08], [0, 0.79, -0.23], 0x966951);
+        for (const x of [-0.73, 0.73]) box(bench, [0.14, 0.44, 0.42], [x, 0.32, 0], 0x4a6666);
+        aobaObstacles.push({ minX: -7.34, maxX: -5.36, minZ: -2.58, maxZ: -2.02 });
+        for (const [x, z] of [[-8.55, -2.15], [-6.45, -4.08], [0.99, -2.25], [12.44, -1.03]]) {
+          placeStreetTree(aobaStreet, aobaObstacles, x, z);
+        }
+
+        for (const x of [8.48, 10.74]) {
+          box(aobaStreet, [0.7, 0.27, 0.5], [x, 0.246, -0.55], 0xa77568);
+          for (const [dx, color] of [[-0.2, 0xe4a192], [0, 0xe8c475], [0.2, 0xb69bb6]]) {
+            cylinder(aobaStreet, 0.022, 0.27, [x + dx, 0.465, -0.55], 0x57836d, 5);
+            box(aobaStreet, [0.13, 0.11, 0.13], [x + dx, 0.611, -0.55], color, true);
+          }
+          aobaObstacles.push({ minX: x - 0.35, maxX: x + 0.35, minZ: -0.8, maxZ: -0.3 });
+        }
+        return entrance;
       }
 
       function buildPlatform() {
@@ -1027,7 +1135,7 @@
         }
         box(platform, [0.115, 2.14, 0.115], [4.64, 1.74, 2.5], 0x506d81);
         box(platform, [2.8, 0.59, 0.14], [4.64, 2.72, 2.5], 0x4e7184);
-        printedPanel(platform, [2.65, 0.46], [4.64, 2.72, 2.58], "#ddf0ef", "#285368", "しおかぜ駅");
+        const setStationName = printedPanel(platform, [2.65, 0.46], [4.64, 2.72, 2.58], "#ddf0ef", "#285368", originName);
         printedPanel(platform, [0.73, 0.5], [4.64, 2.04, 2.58], "#397487", "#f0f5e9", "1");
 
         const traveler = makePerson(platform, 0xf5bd64, 0x535b83, true);
@@ -1093,6 +1201,7 @@
           arrive: () => startMotion("arrive"),
           nextTrain: () => startMotion("next"),
           depart: () => startMotion("depart"),
+          setStationName,
           animate
         };
       }
@@ -1305,10 +1414,11 @@
       }
 
       const door = buildStreet();
+      const aobaEntranceModel = buildAobaStreet();
       const counterModel = buildCounter();
       const platformModel = buildPlatform();
       const checkout = createCheckout(checkoutPanel, counterModel, audio);
-      const stationExercise = createStationExercise(stationPanel, platformModel, audio);
+      const stationExercise = createStationExercise(stationPanel, platformModel, audio, takeTrain);
       const entrances = [
         {
           ...shop, scene: "counter", mesh: door.root, button: enterButton,
@@ -1319,6 +1429,21 @@
           label: new THREE.Vector3(station.doorX, 3.08, station.frontZ + 0.16), releaseHint: "放開方向鍵進站。"
         }
       ];
+      const aobaEntrance = {
+        ...aobaStation, scene: "aoba-platform", mesh: aobaEntranceModel, button: aobaButton,
+        label: new THREE.Vector3(aobaStation.doorX, 3.87, aobaStation.frontZ + 0.17), releaseHint: "放開方向鍵進站。"
+      };
+      const walks = {
+        street: { scene: street, bounds: streetBounds, spawn, obstacles: solidObjects, entrances },
+        "aoba-street": { scene: aobaStreet, bounds: aobaBounds, spawn: aobaSpawn,
+          obstacles: aobaObstacles, entrances: [aobaEntrance] }
+      };
+      const allEntrances = [...entrances, aobaEntrance];
+      const exits = { counter: "street", platform: "street", "aoba-platform": "aoba-street" };
+      const locations = {
+        street: "しおかぜ站前", counter: "結帳櫃檯", platform: "車站月台",
+        ride: "搭車中", "aoba-platform": aobaName, "aoba-street": "青葉站前"
+      };
       const playerShadow = shadow(street, spawn.x, spawn.z, 0.46, 0.34, 0.128);
       const player = makePerson(street, 0xf5bd64, 0x535b83, true);
       player.root.position.copy(spawn);
@@ -1379,8 +1504,9 @@
       }
 
       function updateEntranceMarkers() {
-        if (currentScene !== "street" || switching) return;
-        for (const entrance of entrances) {
+        const area = walks[currentScene];
+        if (!area || switching) return;
+        for (const entrance of area.entrances) {
           projectedLabel.copy(entrance.label).project(streetCamera);
           const left = Math.round((projectedLabel.x + 1) * viewWidth / 2);
           const top = Math.round((1 - projectedLabel.y) * viewHeight / 2);
@@ -1391,8 +1517,15 @@
             entrance.button.style.top = `${top}px`;
           }
         }
-        const hint = pendingEntrance?.releaseHint ||
-          (stationButton.hidden && player.root.position.x < station.doorX ? stationDirectionHint : walkingHint);
+        let hint = walkingHint;
+        if (currentScene === "aoba-street") {
+          hint = aobaButton.hidden
+            ? (player.root.position.x > aobaStation.doorX ? "往左走回青葉駅 ←" : "往右走回青葉駅 →")
+            : "回青葉駅可搭回程列車。";
+        } else if (stationButton.hidden && player.root.position.x < station.doorX) {
+          hint = stationDirectionHint;
+        }
+        if (pendingEntrance) hint = pendingEntrance.releaseHint;
         if (streetInstruction.textContent !== hint) streetInstruction.textContent = hint;
       }
 
@@ -1411,7 +1544,8 @@
 
       function updateStreetCamera(delta, snap = false) {
         const position = player.root.position;
-        followTarget.set(position.x - spawn.x, 0, (position.z - spawn.z) * 0.55);
+        const start = walks[currentScene].spawn;
+        followTarget.set(position.x - start.x, 0, (position.z - start.z) * 0.55);
         followOffset.lerp(followTarget, snap || reducedMotion.matches ? 1 : 1 - Math.exp(-8 * delta));
         streetCamera.position.copy(streetCameraHome).add(followOffset).lerp(doorCameraPosition, doorProgress);
         const zoom = 1 + 0.16 * doorProgress;
@@ -1423,13 +1557,23 @@
         updateEntranceMarkers();
       }
 
+      async function takeTrain() {
+        if (switching || (currentScene !== "platform" && currentScene !== "aoba-platform")) return;
+        const outbound = currentScene === "platform";
+        journeyFrom.textContent = outbound ? originName : aobaName;
+        journeyTo.textContent = outbound ? aobaName : originName;
+        await changeScene("ride");
+        await wait(reducedMotion.matches ? 240 : 1250);
+        await changeScene(outbound ? "aoba-platform" : "street");
+      }
+
       async function changeScene(nextScene) {
         if (switching || nextScene === currentScene) return;
         switching = true;
         clearInput();
         const previousScene = currentScene;
-        const fade = reducedMotion.matches ? 0 : 170;
-        for (const entrance of entrances) entrance.button.hidden = true;
+        const fade = reducedMotion.matches || nextScene === "ride" ? 0 : 170;
+        for (const entrance of allEntrances) entrance.button.hidden = true;
         if (nextScene === "counter") {
           if (fade) openingStarted = performance.now();
           const needsTap = await checkout.ringDoorChime();
@@ -1442,13 +1586,15 @@
             enterButton.focus({ preventScroll: true });
             return;
           }
-        } else if (nextScene === "platform") {
-          stationExercise.start();
         } else if (previousScene === "counter") {
           checkout.stopSpeech();
           counterModel.resetPrinter();
-        } else {
+        } else if (previousScene === "platform") {
           stationExercise.stop();
+        }
+        if (nextScene === "platform") {
+          platformModel.setStationName(originName);
+          stationExercise.start();
         }
 
         if (fade) {
@@ -1457,27 +1603,40 @@
         }
         openingStarted = null;
         currentScene = nextScene;
-        const isStreet = currentScene === "street";
+        const area = walks[currentScene];
         const isPlatform = currentScene === "platform";
-        const exitEntrance = isStreet ? entrances.find((entrance) => entrance.scene === previousScene) : null;
-        const location = { street: "街道", counter: "結帳櫃檯", platform: "車站月台" }[currentScene];
+        const riding = currentScene === "ride";
+        const atAobaStation = currentScene === "aoba-platform";
+        const location = locations[currentScene];
         stage.dataset.scene = currentScene;
+        stage.classList.toggle("has-panel", !area);
         stage.setAttribute("aria-label", `3D ${location}`);
         locationLabel.textContent = location;
-        leaveButton.hidden = isStreet;
+        leaveButton.hidden = currentScene !== "counter" && !isPlatform;
         checkoutPanel.hidden = currentScene !== "counter";
         stationPanel.hidden = !isPlatform;
-        streetFooter.hidden = !isStreet;
-        if (isStreet) {
-          checkout.prepareDoorChime();
+        journeyPanel.hidden = !riding && !atAobaStation;
+        streetFooter.hidden = !area;
+        let focusTarget;
+        if (area) {
+          area.scene.add(player.root, playerShadow);
           setDoorApproach(0);
-          enterButton.textContent = enterLabel;
-          if (previousScene === "platform") {
+          if (currentScene === "aoba-street") {
+            player.root.position.copy(aobaSpawn);
+            player.root.rotation.y = 0;
+            focusTarget = aobaButton;
+          } else if (previousScene === "platform" || previousScene === "ride") {
             player.root.position.set(station.doorX, spawn.y, station.frontZ + 1.23);
             player.root.rotation.y = 0;
+            focusTarget = stationButton;
           } else {
             player.root.position.copy(spawn);
             player.root.rotation.y = 0.36;
+            focusTarget = enterButton;
+          }
+          if (currentScene === "street") {
+            checkout.prepareDoorChime();
+            enterButton.textContent = enterLabel;
           }
           player.body.position.y = 0;
           player.leftFoot.rotation.x = 0;
@@ -1486,24 +1645,37 @@
           updateStreetCamera(0, true);
         } else if (isPlatform) {
           stationExercise.focus();
+        } else if (riding || atAobaStation) {
+          if (riding) {
+            platformModel.depart();
+            journeyTitle.textContent = previousScene === "platform" ? "搭對了！" : "回程列車已出發";
+          } else {
+            platformModel.setStationName(aobaName);
+            platformModel.arrive();
+            journeyTitle.textContent = previousScene === "ride" ? "已抵達青葉駅" : aobaName;
+          }
+          journeyRoute.hidden = !riding;
+          arrivalActions.hidden = !atAobaStation;
+          journeyPanel.scrollTop = 0;
+          focusTarget = journeyTitle;
         } else {
           checkout.reset();
         }
         switching = false;
         layout();
-        exitEntrance?.button.focus({ preventScroll: true });
+        focusTarget?.focus({ preventScroll: true });
         renderer.domElement.style.cursor = "";
         curtain.classList.remove("active");
       }
 
-      function isBlocked(x, z) {
+      function isBlocked(obstacles, x, z) {
         const radius = 0.22;
-        return solidObjects.some(({ minX, maxX, minZ, maxZ }) =>
+        return obstacles.some(({ minX, maxX, minZ, maxZ }) =>
           x + radius > minX && x - radius < maxX && z + radius > minZ && z - radius < maxZ
         );
       }
 
-      function updatePlayer(delta) {
+      function updatePlayer(delta, { bounds, obstacles, entrances }) {
         const directions = new Set();
         for (const input of touchKeys.values()) directions.add(input.direction);
         for (const code of keys) directions.add(keyDirections.get(code));
@@ -1518,12 +1690,12 @@
         if (move.lengthSq() > 0 && !switching && !pendingEntrance) {
           move.normalize();
           const distance = 3.45 * delta;
-          const x = THREE.MathUtils.clamp(position.x + move.x * distance, streetBounds.minX + 0.36, streetBounds.maxX - 0.36);
-          const z = THREE.MathUtils.clamp(position.z + move.z * distance, streetBounds.minZ + 0.38, streetBounds.maxZ - 0.39);
+          const x = THREE.MathUtils.clamp(position.x + move.x * distance, bounds.minX + 0.36, bounds.maxX - 0.36);
+          const z = THREE.MathUtils.clamp(position.z + move.z * distance, bounds.minZ + 0.38, bounds.maxZ - 0.39);
           const startX = position.x;
           const startZ = position.z;
-          if (!isBlocked(x, position.z)) position.x = x;
-          if (!isBlocked(position.x, z)) position.z = z;
+          if (!isBlocked(obstacles, x, position.z)) position.x = x;
+          if (!isBlocked(obstacles, position.x, z)) position.z = z;
           walking = position.x !== startX || position.z !== startZ;
           player.root.rotation.y = Math.atan2(move.x, move.z);
 
@@ -1558,12 +1730,12 @@
         pointer.x = (event.clientX - rect.left) / rect.width * 2 - 1;
         pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointer, streetCamera);
-        return entrances.find(({ mesh }) => raycaster.intersectObject(mesh, true).length > 0);
+        return walks[currentScene].entrances.find(({ mesh }) => raycaster.intersectObject(mesh, true).length > 0);
       }
 
       window.addEventListener("keydown", (event) => {
-        if (event.code === "Escape" && currentScene !== "street") changeScene("street");
-        if (currentScene !== "street" || switching || !keyDirections.has(event.code)) return;
+        if (event.code === "Escape" && exits[currentScene]) changeScene(exits[currentScene]);
+        if (!walks[currentScene] || switching || !keyDirections.has(event.code)) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         event.preventDefault();
         if (!event.repeat) keys.add(event.code);
@@ -1572,17 +1744,19 @@
       window.addEventListener("blur", clearInput);
       document.addEventListener("visibilitychange", () => { if (document.hidden) clearInput(); });
       renderer.domElement.addEventListener("pointermove", (event) => {
-        renderer.domElement.style.cursor = currentScene === "street" && !switching && entranceUnderPointer(event) ? "pointer" : "";
+        renderer.domElement.style.cursor = walks[currentScene] && !switching && entranceUnderPointer(event) ? "pointer" : "";
       });
       renderer.domElement.addEventListener("click", (event) => {
-        if (currentScene !== "street" || switching) return;
+        if (!walks[currentScene] || switching) return;
         const entrance = entranceUnderPointer(event);
         if (entrance) changeScene(entrance.scene);
       });
-      for (const entrance of entrances) {
+      for (const entrance of allEntrances) {
         entrance.button.addEventListener("click", () => changeScene(entrance.scene));
       }
-      leaveButton.addEventListener("click", () => changeScene("street"));
+      leaveButton.addEventListener("click", () => changeScene(exits[currentScene]));
+      document.querySelector("#exit-aoba").addEventListener("click", () => changeScene("aoba-street"));
+      document.querySelector("#ride-home").addEventListener("click", takeTrain);
 
       controls.addEventListener("contextmenu", (event) => event.preventDefault());
       controls.addEventListener("selectstart", (event) => event.preventDefault());
@@ -1614,19 +1788,20 @@
       function draw(time) {
         const delta = Math.min((time - previousFrame) / 1000, 0.045);
         previousFrame = time;
-        if (currentScene === "street") {
-          updatePlayer(delta);
+        const area = walks[currentScene];
+        if (area) {
+          updatePlayer(delta, area);
           if (openingStarted !== null) {
             setDoorApproach(THREE.MathUtils.clamp((time - openingStarted) / 300, 0, 1));
           }
           updateStreetCamera(delta);
-          renderer.render(street, streetCamera);
-        } else if (currentScene === "platform") {
-          platformModel.animate(time);
-          renderer.render(platform, platformCamera);
-        } else {
+          renderer.render(area.scene, streetCamera);
+        } else if (currentScene === "counter") {
           counterModel.animate(time);
           renderer.render(counter, counterCamera);
+        } else {
+          platformModel.animate(time);
+          renderer.render(platform, platformCamera);
         }
       }
 
